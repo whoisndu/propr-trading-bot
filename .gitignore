@@ -1,0 +1,8 @@
+reference/propr-docs/
+propr_sdk.py
+.env
+state.json
+*.log
+__pycache__/
+*.pyc
+.venv/

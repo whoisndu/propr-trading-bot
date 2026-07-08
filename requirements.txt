@@ -1,0 +1,4 @@
+requests
+python-dotenv
+python-ulid
+typing_extensions
