@@ -31,11 +31,18 @@ MIN_NOTIONAL_USDC = Decimal(os.getenv("MIN_NOTIONAL_USDC", "10"))
 # Used only in dry-run, where there's no real account to read equity from.
 DRY_RUN_EQUITY_USDC = Decimal(os.getenv("DRY_RUN_EQUITY_USDC", "1000"))
 
+# Indicator parameters (computed on daily candles for all coins - same
+# methodology across coins, so these are global rather than per-coin).
+BB_PERIOD = int(os.getenv("BB_PERIOD", "20"))
+BB_STD = Decimal(os.getenv("BB_STD", "2"))
+RSI_PERIOD = int(os.getenv("RSI_PERIOD", "14"))
+RSI_OVERSOLD = Decimal(os.getenv("RSI_OVERSOLD", "30"))
+
 
 @dataclass
 class CoinConfig:
     symbol: str
-    trigger_price: Decimal
+    trigger_price: Decimal  # hard ceiling - price must be at/below this AND the indicators must agree
     take_profit_pct: Decimal
     stop_loss_pct: Decimal
     size_decimals: int  # Hyperliquid szDecimals - rounding increment for order quantity

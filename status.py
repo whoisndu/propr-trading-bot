@@ -33,11 +33,15 @@ def main() -> None:
 
         status = coin_state["status"]
         if status == "watching":
-            pct_away = (price - coin.trigger_price) / coin.trigger_price * 100
-            print(
-                f"{coin.symbol:<10} watching  price={price:<12} trigger={coin.trigger_price:<10} "
-                f"({pct_away:+.1f}% away from trigger)"
-            )
+            try:
+                indicators = market_data.get_indicators(coin.symbol, config.BB_PERIOD, config.RSI_PERIOD, config.BB_STD)
+                band_pct_away = (price - indicators["lower_band"]) / indicators["lower_band"] * 100
+                print(
+                    f"{coin.symbol:<10} watching  price={price:<12} ceiling={coin.trigger_price:<10} "
+                    f"lower_band={indicators['lower_band']:<12.6g} ({band_pct_away:+.1f}% away) rsi={indicators['rsi']:.1f}"
+                )
+            except Exception as e:
+                print(f"{coin.symbol:<10} watching  price={price:<12} ceiling={coin.trigger_price:<10} (indicators unavailable: {e})")
         elif status == "in_position":
             entry = Decimal(coin_state["entry_price"])
             unrealized_pct = (price - entry) / entry * 100

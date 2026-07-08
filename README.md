@@ -1,16 +1,17 @@
 # Propr Dip-Bounce Bot
 
-Watches a set of coins for a drop to a set trigger price, buys the dip, and
-exits on a fixed take-profit or stop-loss. Trades via [Propr](https://propr.xyz),
-which executes on Hyperliquid.
+Watches a set of coins for a genuine oversold dislocation on the daily
+timeframe (not short-term noise), buys the dip, and exits on a fixed
+take-profit or stop-loss. Trades via [Propr](https://propr.xyz), which
+executes on Hyperliquid.
 
 ## Coins
 
 Each coin runs independently — its own trigger, TP/SL, and position state
 (so one coin being in a position or cooldown doesn't block the others).
 
-| Coin | Trigger price | TP / SL | `szDecimals` |
-|------|---------------|---------|--------------|
+| Coin | Trigger ceiling | TP / SL | `szDecimals` |
+|------|-----------------|---------|--------------|
 | FARTCOIN | $0.11 | 45% / 18% | 1 |
 | SOL | $65 | 45% / 18% | 2 |
 | ZEC | $380 | 45% / 18% | 2 |
@@ -19,11 +20,14 @@ Each coin runs independently — its own trigger, TP/SL, and position state
 
 ## How it works
 
-- Price is read from Hyperliquid's public API (no account needed) since Propr
-  itself doesn't expose a market-data endpoint.
-- When a coin's price drops to its configured trigger, the bot places a market
-  buy sized at a fixed % of account equity, then attaches a take-profit and
-  stop-loss order to the resulting position.
+- Price and daily candles are read from Hyperliquid's public API (no account
+  needed) since Propr itself doesn't expose a market-data endpoint.
+- A coin only becomes a buy when **all three** agree: price is at/below its
+  manual trigger ceiling, price is at/below its daily Bollinger lower band,
+  and daily RSI is oversold. See "Strategy math" below.
+- On a buy, the bot places a market order sized at a fixed % of account
+  equity, then attaches a take-profit and stop-loss order to the resulting
+  position.
 - Once a position closes (either exit), that coin enters a cooldown window
   before watching for the next dip. Other coins keep watching independently.
 - State (open position, cooldown timer) is persisted to `state.json`, keyed
@@ -31,12 +35,35 @@ Each coin runs independently — its own trigger, TP/SL, and position state
 
 ## Strategy math
 
-All of this lives in `strategy.py` (trigger/rearm) and `bot.py` (sizing/exits).
+All of this lives in `market_data.py` (indicators), `strategy.py`
+(trigger/rearm), and `bot.py` (sizing/exits).
 
-**Entry trigger** — fires when a coin's live mid price $P_t$ drops to or through
-its configured trigger price $P_0$ (`<COIN>_TRIGGER_PRICE`, e.g. `SOL_TRIGGER_PRICE`):
+**Entry** — fires only when all three of these hold for a coin's live mid
+price $P_t$:
 
-$$P_t \le P_0$$
+$$P_t \le P_0 \quad\text{(manual ceiling)} \qquad P_t \le B_{lower} \quad\text{(daily Bollinger)} \qquad R \le 30 \quad\text{(daily RSI)}$$
+
+- $P_0$ = `<COIN>_TRIGGER_PRICE` — a manual hard ceiling (e.g. $0.11 for
+  FARTCOIN). Kept as a belt-and-suspenders check so the bot never buys above a
+  level you already know is too high, regardless of what the indicators say.
+- $B_{lower}$ = the lower Bollinger Band, computed from the last `BB_PERIOD`
+  (default 20) **completed** daily candles — deliberately excluding today's
+  still-forming candle, so a live intraday crash doesn't drag its own
+  reference band down with it:
+
+  $$SMA = \frac{1}{n}\sum_{i=1}^{n} c_i \qquad \sigma = \sqrt{\frac{1}{n}\sum_{i=1}^{n}(c_i - SMA)^2} \qquad B_{lower} = SMA - k\sigma$$
+
+  with $k$ = `BB_STD` (default 2).
+- $R$ = daily RSI(`RSI_PERIOD`, default 14) via Wilder's smoothing (the same
+  method most charting platforms use by default), computed using the live
+  price as today's still-forming close — so unlike the Bollinger band, RSI
+  *does* react to today's drop in real time. Oversold threshold is
+  `RSI_OVERSOLD` (default 30).
+
+Because the reference band comes from completed daily candles only, the
+strategy is intentionally insensitive to intraday/short-timeframe noise —
+it's asking "is this coin unusually far below its own multi-week range,"
+not "did the last 5-minute candle wobble."
 
 **Position size** — a fixed fraction of account equity, converted to a
 quantity and rounded down to the asset's minimum size increment:
@@ -115,29 +142,36 @@ with `pkill -f "main.py"`.
 python status.py
 ```
 
-Prints whether the process is running and, per coin, its current price, how
-far it is from the trigger, or (if in a position) entry/current/TP/SL. This
-strategy is low-frequency by design — most of the time every coin will just
-show as watching, far from its trigger, with no trade activity. That's
-expected, not a sign something's broken.
+Prints whether the process is running and, per coin, its current price,
+ceiling, daily Bollinger lower band and how far price is from it, daily RSI,
+or (if in a position) entry/current/TP/SL. This strategy is low-frequency by
+design — most of the time every coin will just show as watching, well above
+its band, with no trade activity. That's expected, not a sign something's
+broken.
 
 ## Tuning the strategy
 
 Edit `config.py` (or set the corresponding env vars). Each coin has its own
 trigger/TP/SL, overridable independently:
 
-- `<COIN>_TRIGGER_PRICE` — price that triggers a buy, e.g. `SOL_TRIGGER_PRICE`,
+- `<COIN>_TRIGGER_PRICE` — manual ceiling, e.g. `SOL_TRIGGER_PRICE`,
   `ZEC_TRIGGER_PRICE`, `XPL_TRIGGER_PRICE`, `JUP_TRIGGER_PRICE`,
   `FARTCOIN_TRIGGER_PRICE` (see the coins table above for current values).
 - `<COIN>_TP_PCT` / `<COIN>_SL_PCT` — take-profit / stop-loss as a fraction of
   entry price (all coins default to `0.45` / `0.18`).
+- `BB_PERIOD` / `BB_STD` — Bollinger Band lookback in days and std-dev
+  multiplier (defaults `20` / `2`). Same methodology across all coins.
+- `RSI_PERIOD` / `RSI_OVERSOLD` — RSI lookback in days and oversold threshold
+  (defaults `14` / `30`). Same across all coins.
 - `POSITION_SIZE_PCT` — fraction of account equity risked per trade (default
   `0.03`, i.e. 3%), applied independently to each coin. Ignored in dry-run,
   where `DRY_RUN_EQUITY_USDC` is used instead as a stand-in equity.
 - `COOLDOWN_MINUTES` — how long to wait after a position closes before that
   coin watches for a new entry (default `60`).
 - `POLL_INTERVAL_SECONDS` — how often to check prices, across all coins
-  (default `5`).
+  (default `5`). Bollinger/RSI are recomputed from daily candles every tick
+  regardless — the underlying data only moves once a day, but re-fetching is
+  cheap.
 
 ## Adding another coin
 

@@ -235,23 +235,24 @@ def reconcile_on_startup(client: ProprClient | None, coin: config.CoinConfig, co
 
 def tick(client: ProprClient | None, coin: config.CoinConfig, all_state: dict) -> None:
     coin_state = state_store.get_coin_state(all_state, coin.symbol)
-    price = market_data.get_mid_price(coin.symbol)
 
     if coin_state["status"] == "in_position":
+        price = market_data.get_mid_price(coin.symbol)
         coin_state = check_position_closed(client, coin, price, coin_state)
         state_store.set_coin_state(all_state, coin.symbol, coin_state)
         return
 
-    decision = decide(coin, coin_state, price)
-    log.debug("[%s] price=%s status=%s decision=%s (%s)", coin.symbol, price, coin_state["status"], decision.action, decision.reason)
+    indicators = market_data.get_indicators(coin.symbol, config.BB_PERIOD, config.RSI_PERIOD, config.BB_STD)
+    decision = decide(coin, coin_state, indicators)
+    log.debug("[%s] status=%s decision=%s (%s)", coin.symbol, coin_state["status"], decision.action, decision.reason)
 
     if decision.action == Action.ENTER:
-        coin_state = enter_position(client, coin, price, coin_state)
+        coin_state = enter_position(client, coin, indicators["price"], coin_state)
     elif decision.action == Action.REARM:
         log.info("[%s] cooldown elapsed, back to watching", coin.symbol)
         coin_state = dict(state_store.DEFAULT_COIN_STATE)
     else:
-        log.info("[%s] watching: price=%s trigger=%s status=%s", coin.symbol, price, coin.trigger_price, coin_state["status"])
+        log.info("[%s] watching: %s", coin.symbol, decision.reason)
 
     state_store.set_coin_state(all_state, coin.symbol, coin_state)
 
