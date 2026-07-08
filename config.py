@@ -49,4 +49,32 @@ COINS: list[CoinConfig] = [
         stop_loss_pct=Decimal(os.getenv("FARTCOIN_SL_PCT", "0.18")),
         size_decimals=1,
     ),
+    CoinConfig(
+        symbol="SOL",
+        trigger_price=Decimal(os.getenv("SOL_TRIGGER_PRICE", "65")),
+        take_profit_pct=Decimal(os.getenv("SOL_TP_PCT", "0.45")),
+        stop_loss_pct=Decimal(os.getenv("SOL_SL_PCT", "0.18")),
+        size_decimals=2,
+    ),
+    CoinConfig(
+        symbol="ZEC",
+        trigger_price=Decimal(os.getenv("ZEC_TRIGGER_PRICE", "380")),
+        take_profit_pct=Decimal(os.getenv("ZEC_TP_PCT", "0.45")),
+        stop_loss_pct=Decimal(os.getenv("ZEC_SL_PCT", "0.18")),
+        size_decimals=2,
+    ),
+    CoinConfig(
+        symbol="XPL",
+        trigger_price=Decimal(os.getenv("XPL_TRIGGER_PRICE", "0.07")),
+        take_profit_pct=Decimal(os.getenv("XPL_TP_PCT", "0.45")),
+        stop_loss_pct=Decimal(os.getenv("XPL_SL_PCT", "0.18")),
+        size_decimals=0,
+    ),
+    CoinConfig(
+        symbol="JUP",
+        trigger_price=Decimal(os.getenv("JUP_TRIGGER_PRICE", "0.15")),
+        take_profit_pct=Decimal(os.getenv("JUP_TP_PCT", "0.45")),
+        stop_loss_pct=Decimal(os.getenv("JUP_SL_PCT", "0.18")),
+        size_decimals=0,
+    ),
 ]

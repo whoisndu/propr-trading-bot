@@ -1,27 +1,40 @@
 # Propr Dip-Bounce Bot
 
-Watches FARTCOIN for a drop to a set trigger price, buys the dip, and exits on a
-fixed take-profit or stop-loss. Trades via [Propr](https://propr.xyz), which
-executes on Hyperliquid.
+Watches a set of coins for a drop to a set trigger price, buys the dip, and
+exits on a fixed take-profit or stop-loss. Trades via [Propr](https://propr.xyz),
+which executes on Hyperliquid.
+
+## Coins
+
+Each coin runs independently — its own trigger, TP/SL, and position state
+(so one coin being in a position or cooldown doesn't block the others).
+
+| Coin | Trigger price | TP / SL | `szDecimals` |
+|------|---------------|---------|--------------|
+| FARTCOIN | $0.11 | 45% / 18% | 1 |
+| SOL | $65 | 45% / 18% | 2 |
+| ZEC | $380 | 45% / 18% | 2 |
+| XPL | $0.07 | 45% / 18% | 0 |
+| JUP | $0.15 | 45% / 18% | 0 |
 
 ## How it works
 
 - Price is read from Hyperliquid's public API (no account needed) since Propr
   itself doesn't expose a market-data endpoint.
-- When price drops to the configured trigger, the bot places a market buy sized
-  at a fixed % of account equity, then attaches a take-profit and stop-loss
-  order to the resulting position.
-- Once the position closes (either exit), the bot enters a cooldown window
-  before watching for the next dip.
-- State (open position, cooldown timer) is persisted to `state.json` so a
-  restart doesn't lose track or double-enter.
+- When a coin's price drops to its configured trigger, the bot places a market
+  buy sized at a fixed % of account equity, then attaches a take-profit and
+  stop-loss order to the resulting position.
+- Once a position closes (either exit), that coin enters a cooldown window
+  before watching for the next dip. Other coins keep watching independently.
+- State (open position, cooldown timer) is persisted to `state.json`, keyed
+  per coin, so a restart doesn't lose track or double-enter.
 
 ## Strategy math
 
 All of this lives in `strategy.py` (trigger/rearm) and `bot.py` (sizing/exits).
 
-**Entry trigger** — fires when the live mid price $P_t$ drops to or through the
-configured trigger price $P_0$ (`FARTCOIN_TRIGGER_PRICE`):
+**Entry trigger** — fires when a coin's live mid price $P_t$ drops to or through
+its configured trigger price $P_0$ (`<COIN>_TRIGGER_PRICE`, e.g. `SOL_TRIGGER_PRICE`):
 
 $$P_t \le P_0$$
 
@@ -31,8 +44,8 @@ quantity and rounded down to the asset's minimum size increment:
 $$q_{raw} = \frac{E \cdot r}{P_t} \qquad \delta = 10^{-d} \qquad q = \left\lfloor \frac{q_{raw}}{\delta} \right\rfloor \cdot \delta$$
 
 - $E$ = account equity in USDC (`get_account` balance + unrealized PnL + isolated margin)
-- $r$ = `POSITION_SIZE_PCT`, e.g. $0.03$ = 3% of equity per trade
-- $d$ = the asset's `szDecimals` from Hyperliquid ($d=1$ for FARTCOIN, so $\delta = 0.1$)
+- $r$ = `POSITION_SIZE_PCT`, e.g. $0.03$ = 3% of equity per trade, applied per coin independently
+- $d$ = the coin's `szDecimals` from Hyperliquid — see the table above ($d=1$ for FARTCOIN → $\delta=0.1$; $d=0$ for XPL/JUP → $\delta=1$)
 
 The entry is skipped if the resulting notional falls below a minimum $N$
 (`MIN_NOTIONAL_USDC`):
@@ -44,9 +57,9 @@ returned by the exchange, not the trigger price, since market orders can slip:
 
 $$P_{TP} = P_f \cdot (1 + k_{tp}) \qquad P_{SL} = P_f \cdot (1 - k_{sl})$$
 
-where $k_{tp}$, $k_{sl}$ are `FARTCOIN_TP_PCT` / `FARTCOIN_SL_PCT`. With the
-defaults ($k_{tp}=0.45$, $k_{sl}=0.18$), the position's expected value assuming
-a bounce probability $p$ is:
+where $k_{tp}$, $k_{sl}$ are `<COIN>_TP_PCT` / `<COIN>_SL_PCT`. With the current
+defaults for every coin ($k_{tp}=0.45$, $k_{sl}=0.18$), the position's expected
+value assuming a bounce probability $p$ is:
 
 $$E[\text{return}] = p \cdot 0.45 - (1-p) \cdot 0.18$$
 
@@ -98,17 +111,21 @@ with `pkill -f "main.py"`.
 
 ## Tuning the strategy
 
-Edit `config.py` (or set the corresponding env vars):
+Edit `config.py` (or set the corresponding env vars). Each coin has its own
+trigger/TP/SL, overridable independently:
 
-- `FARTCOIN_TRIGGER_PRICE` — price that triggers a buy (default `0.11`).
-- `FARTCOIN_TP_PCT` / `FARTCOIN_SL_PCT` — take-profit / stop-loss as a
-  fraction of entry price (defaults `0.45` / `0.18`).
+- `<COIN>_TRIGGER_PRICE` — price that triggers a buy, e.g. `SOL_TRIGGER_PRICE`,
+  `ZEC_TRIGGER_PRICE`, `XPL_TRIGGER_PRICE`, `JUP_TRIGGER_PRICE`,
+  `FARTCOIN_TRIGGER_PRICE` (see the coins table above for current values).
+- `<COIN>_TP_PCT` / `<COIN>_SL_PCT` — take-profit / stop-loss as a fraction of
+  entry price (all coins default to `0.45` / `0.18`).
 - `POSITION_SIZE_PCT` — fraction of account equity risked per trade (default
-  `0.03`, i.e. 3%). Ignored in dry-run, where `DRY_RUN_EQUITY_USDC` is used
-  instead as a stand-in equity.
-- `COOLDOWN_MINUTES` — how long to wait after a position closes before
-  watching for a new entry (default `60`).
-- `POLL_INTERVAL_SECONDS` — how often to check price (default `5`).
+  `0.03`, i.e. 3%), applied independently to each coin. Ignored in dry-run,
+  where `DRY_RUN_EQUITY_USDC` is used instead as a stand-in equity.
+- `COOLDOWN_MINUTES` — how long to wait after a position closes before that
+  coin watches for a new entry (default `60`).
+- `POLL_INTERVAL_SECONDS` — how often to check prices, across all coins
+  (default `5`).
 
 ## Adding another coin
 
