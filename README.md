@@ -21,41 +21,43 @@ executes on Hyperliquid.
 All of this lives in `strategy.py` (trigger/rearm) and `bot.py` (sizing/exits).
 
 **Entry trigger** — fires when the live mid price $P_t$ drops to or through the
-configured trigger:
+configured trigger price $P_0$ (`FARTCOIN_TRIGGER_PRICE`):
 
-$$P_t \le P_{\text{trigger}}$$
+$$P_t \le P_0$$
 
 **Position size** — a fixed fraction of account equity, converted to a
 quantity and rounded down to the asset's minimum size increment:
 
-$$q_{\text{raw}} = \frac{E \cdot r}{P_t} \qquad \delta = 10^{-d} \qquad q = \left\lfloor \frac{q_{\text{raw}}}{\delta} \right\rfloor \cdot \delta$$
+$$q_{raw} = \frac{E \cdot r}{P_t} \qquad \delta = 10^{-d} \qquad q = \left\lfloor \frac{q_{raw}}{\delta} \right\rfloor \cdot \delta$$
 
 - $E$ = account equity in USDC (`get_account` balance + unrealized PnL + isolated margin)
 - $r$ = `POSITION_SIZE_PCT`, e.g. $0.03$ = 3% of equity per trade
 - $d$ = the asset's `szDecimals` from Hyperliquid ($d=1$ for FARTCOIN, so $\delta = 0.1$)
 
-The entry is skipped if the resulting notional falls below the minimum:
+The entry is skipped if the resulting notional falls below a minimum $N$
+(`MIN_NOTIONAL_USDC`):
 
-$$q \cdot P_t < \text{MIN\_NOTIONAL\_USDC} \implies \text{skip}$$
+$$q \cdot P_t < N \implies \text{skip}$$
 
-**Exit levels** — computed from the *actual* average fill price $P_{\text{fill}}$
+**Exit levels** — computed from the *actual* average fill price $P_f$
 returned by the exchange, not the trigger price, since market orders can slip:
 
-$$P_{TP} = P_{\text{fill}} \cdot (1 + \text{tp\_pct}) \qquad P_{SL} = P_{\text{fill}} \cdot (1 - \text{sl\_pct})$$
+$$P_{TP} = P_f \cdot (1 + k_{tp}) \qquad P_{SL} = P_f \cdot (1 - k_{sl})$$
 
-With the defaults ($\text{tp\_pct}=0.45$, $\text{sl\_pct}=0.18$), the position's
-expected value assuming a bounce probability $p$ is:
+where $k_{tp}$, $k_{sl}$ are `FARTCOIN_TP_PCT` / `FARTCOIN_SL_PCT`. With the
+defaults ($k_{tp}=0.45$, $k_{sl}=0.18$), the position's expected value assuming
+a bounce probability $p$ is:
 
-$$\mathbb{E}[\text{return}] = p \cdot 0.45 - (1-p) \cdot 0.18$$
+$$E[\text{return}] = p \cdot 0.45 - (1-p) \cdot 0.18$$
 
 which is breakeven at $p \approx 0.286$ — i.e. the trigger level only needs to
 produce a bounce (rather than a further crash through the stop) better than
 ~29% of the time for this TP/SL ratio to be worth taking, before fees/funding.
 
 **Cooldown** — after a position closes, the bot re-arms once the cooldown
-window elapses:
+window $C$ (`COOLDOWN_MINUTES`) elapses:
 
-$$t_{\text{rearm}} = t_{\text{close}} + \text{COOLDOWN\_MINUTES}, \qquad \text{rearm when } t_{\text{now}} \ge t_{\text{rearm}}$$
+$$t_{rearm} = t_{close} + C, \qquad \text{rearm when } t_{now} \ge t_{rearm}$$
 
 ## Setup
 
