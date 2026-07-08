@@ -109,6 +109,18 @@ nohup .venv/bin/python main.py > /dev/null 2>&1 & disown
 Logs go to `bot.log` regardless of how it's started (`tail -f bot.log`). Stop it
 with `pkill -f "main.py"`.
 
+## Checking on it
+
+```bash
+python status.py
+```
+
+Prints whether the process is running and, per coin, its current price, how
+far it is from the trigger, or (if in a position) entry/current/TP/SL. This
+strategy is low-frequency by design — most of the time every coin will just
+show as watching, far from its trigger, with no trade activity. That's
+expected, not a sign something's broken.
+
 ## Tuning the strategy
 
 Edit `config.py` (or set the corresponding env vars). Each coin has its own
